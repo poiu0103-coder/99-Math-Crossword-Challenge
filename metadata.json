@@ -1,0 +1,6 @@
+{
+  "name": "사칙연산 십자풀이",
+  "description": "사칙연산(더하기, 빼기, 곱하기, 나누기)으로 구성된 십자말풀이 수학 게임입니다. 초급, 중급, 고급 난이도로 나뉜 10개의 랜덤 퍼즐을 해결하며 실시간 검증과 인공지능(AI) 수학 튜터의 단계별 설명과 힌트를 제공받을 수 있습니다.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
