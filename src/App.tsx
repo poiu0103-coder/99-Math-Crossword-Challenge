@@ -53,16 +53,32 @@ export default function App() {
   // Sound effects or simple animations state
   const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; isError: boolean } | null>(null);
 
-  // Load high scores / stats from localstorage on mount
-  useEffect(() => {
+  // Load student high scores and logs from server-side database
+  const fetchHistoryFromServer = async () => {
     try {
-      const saved = localStorage.getItem("crossmath_history");
-      if (saved) {
-        setCompletedSessions(JSON.parse(saved));
+      const res = await fetch("/api/history");
+      if (res.ok) {
+        const data = await res.json();
+        setCompletedSessions(data);
       }
     } catch (e) {
-      console.warn("Could not load game history from localStorage", e);
+      console.warn("Could not load game history from server, trying localStorage fallback", e);
+      try {
+        const saved = localStorage.getItem("crossmath_history");
+        if (saved) {
+          setCompletedSessions(JSON.parse(saved));
+        }
+      } catch (err) {
+        console.warn("Could not load game history from localStorage", err);
+      }
     }
+  };
+
+  useEffect(() => {
+    fetchHistoryFromServer();
+    // Poll the server every 5 seconds so 10+ student environments are instantly synchronized
+    const interval = setInterval(fetchHistoryFromServer, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   // Synchronize student credentials with localStorage
@@ -265,7 +281,7 @@ export default function App() {
     }, 4500);
   };
 
-  const saveSessionToHistory = (stagesClearedCount: number) => {
+  const saveSessionToHistory = async (stagesClearedCount: number) => {
     if (!difficulty) return;
     
     // Ensure fallback values if left completely empty
@@ -289,14 +305,35 @@ export default function App() {
       totalHintsUsed: crosswords.reduce((sum, item) => sum + item.hintsUsed, 0)
     };
 
+    // 1. Local storage fallback backup
     try {
       const saved = localStorage.getItem("crossmath_history");
       const currentHistory = saved ? JSON.parse(saved) : [];
-      const updatedList = [session, ...currentHistory]; // Cumulative storage without slicing limits
-      setCompletedSessions(updatedList);
+      const updatedList = [session, ...currentHistory];
       localStorage.setItem("crossmath_history", JSON.stringify(updatedList));
     } catch (e) {
-      console.warn("Could not save to localStorage", e);
+      console.warn("Could not save to localStorage backup", e);
+    }
+
+    // 2. Real-time REST API submit to server so all environments sync instantly
+    try {
+      const response = await fetch("/api/history", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(session)
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setCompletedSessions(data.history);
+      } else {
+        // Fallback local update if network issue
+        fetchHistoryFromServer();
+      }
+    } catch (err) {
+      console.warn("API save error, syncing locally", err);
+      fetchHistoryFromServer();
     }
   };
 
@@ -400,18 +437,61 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  const deleteHistoryItem = (indexToDelete: number) => {
+  const deleteHistoryItem = async (indexToDelete: number) => {
     if (window.confirm("선택한 참여 이력을 대장에서 영구 삭제하시겠습니까?")) {
-      const updated = completedSessions.filter((_, idx) => idx !== indexToDelete);
-      setCompletedSessions(updated);
-      localStorage.setItem("crossmath_history", JSON.stringify(updated));
+      // Optimistically remove from state or local first
+      const updatedLocal = completedSessions.filter((_, idx) => idx !== indexToDelete);
+      setCompletedSessions(updatedLocal);
+      try {
+        localStorage.setItem("crossmath_history", JSON.stringify(updatedLocal));
+      } catch (e) {
+        console.warn(e);
+      }
+
+      try {
+        const response = await fetch("/api/history/delete", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ index: indexToDelete })
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setCompletedSessions(data.history);
+        } else {
+          fetchHistoryFromServer();
+        }
+      } catch (err) {
+        console.warn("API delete error", err);
+        fetchHistoryFromServer();
+      }
     }
   };
 
-  const clearAllHistory = () => {
+  const clearAllHistory = async () => {
     if (window.confirm("정말 모든 학생의 참여 이력을 완전히 초기화하시겠습니까?\n이 작업은 되돌릴 수 없습니다.")) {
       setCompletedSessions([]);
-      localStorage.removeItem("crossmath_history");
+      try {
+        localStorage.removeItem("crossmath_history");
+      } catch (e) {
+        console.warn(e);
+      }
+
+      try {
+        const response = await fetch("/api/history/clear", {
+          method: "POST"
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setCompletedSessions(data.history);
+        } else {
+          fetchHistoryFromServer();
+        }
+      } catch (err) {
+        console.warn("API clear error", err);
+        fetchHistoryFromServer();
+      }
     }
   };
 

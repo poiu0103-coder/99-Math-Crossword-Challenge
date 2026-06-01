@@ -113,6 +113,74 @@ ${gridString}
   }
 });
 
+// Create path for history database file
+import fs from "fs";
+const HISTORY_FILE = path.join(process.cwd(), "crossmath_history.json");
+
+let gameHistories: any[] = [];
+try {
+  if (fs.existsSync(HISTORY_FILE)) {
+    gameHistories = JSON.parse(fs.readFileSync(HISTORY_FILE, "utf-8"));
+  }
+} catch (e) {
+  console.error("실패: 참여 이력 파일을 불러오지 못했습니다.", e);
+}
+
+function saveHistoryToFile() {
+  try {
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(gameHistories, null, 2), "utf-8");
+  } catch (e) {
+    console.error("실패: 참여 이력을 저장하지 못했습니다.", e);
+  }
+}
+
+// 1. Get all student game logs
+app.get("/api/history", (req, res) => {
+  res.json(gameHistories);
+});
+
+// 2. Add student game log
+app.post("/api/history", (req, res) => {
+  try {
+    const session = req.body;
+    if (!session || !session.studentName) {
+      return res.status(400).json({ error: "유효하지 않은 참여 이력 데이터입니다." });
+    }
+    // Append at the beginning so newest appears first
+    gameHistories.unshift(session);
+    saveHistoryToFile();
+    res.json({ success: true, history: gameHistories });
+  } catch (error: any) {
+    res.status(500).json({ error: "참여 이력을 저장하는 중 오류 발생", details: error.message });
+  }
+});
+
+// 3. Delete a specific history log item by its index
+app.post("/api/history/delete", (req, res) => {
+  try {
+    const { index } = req.body;
+    if (typeof index !== "number" || index < 0 || index >= gameHistories.length) {
+      return res.status(400).json({ error: "유효하지 않은 인덱스입니다." });
+    }
+    gameHistories.splice(index, 1);
+    saveHistoryToFile();
+    res.json({ success: true, history: gameHistories });
+  } catch (error: any) {
+    res.status(500).json({ error: "참여 이력을 삭제하는 중 오류 발생", details: error.message });
+  }
+});
+
+// 4. Clear all history logs
+app.post("/api/history/clear", (req, res) => {
+  try {
+    gameHistories = [];
+    saveHistoryToFile();
+    res.json({ success: true, history: gameHistories });
+  } catch (error: any) {
+    res.status(500).json({ error: "전체 초기화 중 오류 발생", details: error.message });
+  }
+});
+
 // Setup dev/prod mode static assets handling
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
